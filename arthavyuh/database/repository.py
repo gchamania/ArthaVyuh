@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
+from datetime import date
 
 from arthavyuh.core.config import DEFAULT_DB_PATH, resolve_path
 from arthavyuh.core.models import Signal
@@ -116,3 +117,34 @@ def save_daily_report_metadata(
             ),
         )
         connection.commit()
+
+
+def save_broker_snapshot(
+    broker: str,
+    dataset: str,
+    payload: Any,
+    *,
+    from_date: str | None = None,
+    to_date: str | None = None,
+    db_path: str | Path = DEFAULT_DB_PATH,
+) -> int:
+    initialize_database(db_path)
+    with get_connection(db_path) as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO broker_snapshots(
+                broker, dataset, snapshot_date, from_date, to_date, payload
+            )
+            VALUES(?, ?, ?, ?, ?, ?)
+            """,
+            (
+                broker,
+                dataset,
+                date.today().isoformat(),
+                from_date,
+                to_date,
+                json.dumps(payload, indent=2, default=str),
+            ),
+        )
+        connection.commit()
+        return int(cursor.lastrowid)

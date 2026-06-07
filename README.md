@@ -51,6 +51,36 @@ arthavyuh risk size --capital 100000 --risk-percent 1 --entry 500 --stop 475
 
 Use `--json` on machine-facing commands where available.
 
+## DhanHQ Read-Only Bridge
+
+ArthaVyuh can optionally ingest read-only Dhan account and market data. It does not place, modify, cancel, or execute broker orders.
+
+Set credentials in your shell or a local `.env` loader:
+
+```bash
+export DHAN_CLIENT_ID="your-client-id"
+export DHAN_ACCESS_TOKEN="your-access-token"
+```
+
+Read-only commands:
+
+```bash
+arthavyuh dhan check
+arthavyuh dhan holdings --json
+arthavyuh dhan positions --json
+arthavyuh dhan ledger --from-date 2026-06-01 --to-date 2026-06-07 --json
+arthavyuh dhan trades --from-date 2026-06-01 --to-date 2026-06-07 --json
+arthavyuh dhan market historical --from-date 2025-01-01 --to-date 2025-12-31 --instruments config/dhan_instruments_sample.csv
+```
+
+Historical market data writes ArthaVyuh-compatible OHLCV CSV files into `data/ohlcv/` by default.
+
+Configure instrument mappings in:
+
+```text
+config/dhan_instruments_sample.csv
+```
+
 ## Data
 
 Watchlists live in `config/watchlists/` and use:

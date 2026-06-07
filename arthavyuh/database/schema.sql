@@ -100,3 +100,14 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS broker_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    broker TEXT NOT NULL,
+    dataset TEXT NOT NULL,
+    snapshot_date TEXT NOT NULL,
+    from_date TEXT,
+    to_date TEXT,
+    payload TEXT NOT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);

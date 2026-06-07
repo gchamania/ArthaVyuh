@@ -29,6 +29,7 @@ Agents may:
 - improve reports
 - create CLI commands
 - inspect generated JSON/Markdown reports
+- add read-only broker data ingestion for market data, ledger, holdings, positions, and trade history
 
 ## What Agents Must Not Do
 
@@ -37,6 +38,7 @@ Agents must not:
 - call a setup a guaranteed trade
 - use "buy now" or "sell now" language
 - add broker execution without explicit instruction
+- add broker order placement, order modification, order cancellation, or auto execution
 - add OpenAlgo dependency
 - commit secrets
 - hardcode API keys
@@ -75,12 +77,13 @@ Build only:
 - JSON/Markdown reports
 - tests
 - Hermes-friendly shell script
+- optional read-only broker data ingestion
 
 Do not build:
 - web app
 - desktop app
 - mobile app
-- broker connector
+- broker execution connector
 - Telegram bot
 - AI connector
 - auto execution

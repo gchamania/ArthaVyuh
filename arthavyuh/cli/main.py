@@ -10,14 +10,23 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from arthavyuh.brokers.dhan import (
+    DEFAULT_DHAN_INSTRUMENTS_PATH,
+    DhanReadOnlyClient,
+    instruments_to_marketfeed_payload,
+    load_dhan_instruments,
+    write_historical_ohlcv_csv,
+)
 from arthavyuh.core.config import (
     DEFAULT_DAILY_REPORTS_DIR,
     DEFAULT_DB_PATH,
     DEFAULT_OHLCV_DIR,
     DEFAULT_WATCHLIST_PATH,
 )
+from arthavyuh.core.exceptions import ConfigError
 from arthavyuh.core.health import health_status_lines, run_health_check
 from arthavyuh.database.db import initialize_database
+from arthavyuh.database.repository import save_broker_snapshot
 from arthavyuh.reports.evening_report import generate_evening_report
 from arthavyuh.risk.position_sizing import calculate_position_size
 from arthavyuh.scanners.scanner import run_scan
@@ -27,15 +36,45 @@ app = typer.Typer(help="ArthaVyuh deterministic trading core.")
 strategies_app = typer.Typer(help="Strategy registry commands.")
 report_app = typer.Typer(help="Report generation commands.")
 risk_app = typer.Typer(help="Risk calculation commands.")
+dhan_app = typer.Typer(help="Read-only DhanHQ data bridge.")
+dhan_market_app = typer.Typer(help="Read-only DhanHQ market data commands.")
 app.add_typer(strategies_app, name="strategies")
 app.add_typer(report_app, name="report")
 app.add_typer(risk_app, name="risk")
+app.add_typer(dhan_app, name="dhan")
+dhan_app.add_typer(dhan_market_app, name="market")
 
 console = Console()
 
 
 def _print_json(payload: dict) -> None:
     console.print(json.dumps(payload, indent=2))
+
+
+def _fail(message: str, json_output: bool) -> None:
+    if json_output:
+        _print_json({"status": "FAIL", "error": message})
+    else:
+        console.print(f"FAIL {message}")
+    raise typer.Exit(code=1)
+
+
+def _dhan_client(json_output: bool) -> DhanReadOnlyClient:
+    try:
+        return DhanReadOnlyClient()
+    except ConfigError as exc:
+        _fail(str(exc), json_output)
+        raise
+
+
+def _dhan_api_call(json_output: bool, call):
+    try:
+        return call(_dhan_client(json_output))
+    except typer.Exit:
+        raise
+    except RuntimeError as exc:
+        _fail(str(exc), json_output)
+        raise
 
 
 @app.command("init-db")
@@ -160,6 +199,165 @@ def risk_size(
     console.print(f"Risk amount: {result.risk_amount}")
     if result.risk_reward is not None:
         console.print(f"Risk:reward: {result.risk_reward}")
+
+
+@dhan_app.command("check")
+def dhan_check(
+    json_output: Annotated[bool, typer.Option("--json", help="Print machine-readable JSON.")] = False,
+) -> None:
+    """Check Dhan token/account visibility without placing orders."""
+
+    profile = _dhan_api_call(json_output, lambda client: client.profile())
+    payload = {"status": "PASS", "profile": profile}
+    if json_output:
+        _print_json(payload)
+    else:
+        console.print("PASS Dhan profile fetched")
+        console.print(f"Client ID: {profile.get('dhanClientId', 'unknown')}")
+        console.print(f"Token validity: {profile.get('tokenValidity', 'unknown')}")
+        console.print(f"Data plan: {profile.get('dataPlan', 'unknown')}")
+
+
+@dhan_app.command("holdings")
+def dhan_holdings(
+    db_path: Annotated[Path, typer.Option("--db-path", help="SQLite database path.")] = DEFAULT_DB_PATH,
+    save: Annotated[bool, typer.Option("--save/--no-save", help="Save raw response snapshot.")] = True,
+    json_output: Annotated[bool, typer.Option("--json", help="Print machine-readable JSON.")] = False,
+) -> None:
+    holdings = _dhan_api_call(json_output, lambda client: client.holdings())
+    snapshot_id = save_broker_snapshot("dhan", "holdings", holdings, db_path=db_path) if save else None
+    payload = {"status": "PASS", "count": len(holdings), "snapshot_id": snapshot_id, "holdings": holdings}
+    if json_output:
+        _print_json(payload)
+    else:
+        console.print(f"PASS fetched {len(holdings)} holdings")
+        if snapshot_id:
+            console.print(f"Saved broker snapshot: {snapshot_id}")
+
+
+@dhan_app.command("positions")
+def dhan_positions(
+    db_path: Annotated[Path, typer.Option("--db-path", help="SQLite database path.")] = DEFAULT_DB_PATH,
+    save: Annotated[bool, typer.Option("--save/--no-save", help="Save raw response snapshot.")] = True,
+    json_output: Annotated[bool, typer.Option("--json", help="Print machine-readable JSON.")] = False,
+) -> None:
+    positions = _dhan_api_call(json_output, lambda client: client.positions())
+    snapshot_id = save_broker_snapshot("dhan", "positions", positions, db_path=db_path) if save else None
+    payload = {"status": "PASS", "count": len(positions), "snapshot_id": snapshot_id, "positions": positions}
+    if json_output:
+        _print_json(payload)
+    else:
+        console.print(f"PASS fetched {len(positions)} positions")
+        if snapshot_id:
+            console.print(f"Saved broker snapshot: {snapshot_id}")
+
+
+@dhan_app.command("ledger")
+def dhan_ledger(
+    from_date: Annotated[str, typer.Option("--from-date", help="Start date, YYYY-MM-DD.")],
+    to_date: Annotated[str, typer.Option("--to-date", help="End date, YYYY-MM-DD.")],
+    db_path: Annotated[Path, typer.Option("--db-path", help="SQLite database path.")] = DEFAULT_DB_PATH,
+    save: Annotated[bool, typer.Option("--save/--no-save", help="Save raw response snapshot.")] = True,
+    json_output: Annotated[bool, typer.Option("--json", help="Print machine-readable JSON.")] = False,
+) -> None:
+    ledger = _dhan_api_call(json_output, lambda client: client.ledger(from_date, to_date))
+    snapshot_id = (
+        save_broker_snapshot("dhan", "ledger", ledger, from_date=from_date, to_date=to_date, db_path=db_path)
+        if save
+        else None
+    )
+    payload = {"status": "PASS", "count": len(ledger), "snapshot_id": snapshot_id, "ledger": ledger}
+    if json_output:
+        _print_json(payload)
+    else:
+        console.print(f"PASS fetched {len(ledger)} ledger rows")
+        if snapshot_id:
+            console.print(f"Saved broker snapshot: {snapshot_id}")
+
+
+@dhan_app.command("trades")
+def dhan_trades(
+    from_date: Annotated[str, typer.Option("--from-date", help="Start date, YYYY-MM-DD.")],
+    to_date: Annotated[str, typer.Option("--to-date", help="End date, YYYY-MM-DD.")],
+    page: Annotated[int, typer.Option("--page", help="Dhan trade history page number.")] = 0,
+    db_path: Annotated[Path, typer.Option("--db-path", help="SQLite database path.")] = DEFAULT_DB_PATH,
+    save: Annotated[bool, typer.Option("--save/--no-save", help="Save raw response snapshot.")] = True,
+    json_output: Annotated[bool, typer.Option("--json", help="Print machine-readable JSON.")] = False,
+) -> None:
+    trades = _dhan_api_call(json_output, lambda client: client.trades(from_date, to_date, page))
+    snapshot_id = (
+        save_broker_snapshot("dhan", "trades", trades, from_date=from_date, to_date=to_date, db_path=db_path)
+        if save
+        else None
+    )
+    payload = {"status": "PASS", "count": len(trades), "page": page, "snapshot_id": snapshot_id, "trades": trades}
+    if json_output:
+        _print_json(payload)
+    else:
+        console.print(f"PASS fetched {len(trades)} trade rows on page {page}")
+        if snapshot_id:
+            console.print(f"Saved broker snapshot: {snapshot_id}")
+
+
+@dhan_market_app.command("ltp")
+def dhan_market_ltp(
+    instruments: Annotated[Path, typer.Option("--instruments", help="Dhan instrument mapping CSV.")] = DEFAULT_DHAN_INSTRUMENTS_PATH,
+    json_output: Annotated[bool, typer.Option("--json", help="Print machine-readable JSON.")] = False,
+) -> None:
+    items = load_dhan_instruments(instruments)
+    payload = _dhan_api_call(json_output, lambda client: client.market_ltp(instruments_to_marketfeed_payload(items)))
+    if json_output:
+        _print_json(payload)
+    else:
+        console.print(f"PASS fetched LTP snapshot for {len(items)} instruments")
+
+
+@dhan_market_app.command("ohlc")
+def dhan_market_ohlc(
+    instruments: Annotated[Path, typer.Option("--instruments", help="Dhan instrument mapping CSV.")] = DEFAULT_DHAN_INSTRUMENTS_PATH,
+    json_output: Annotated[bool, typer.Option("--json", help="Print machine-readable JSON.")] = False,
+) -> None:
+    items = load_dhan_instruments(instruments)
+    payload = _dhan_api_call(json_output, lambda client: client.market_ohlc(instruments_to_marketfeed_payload(items)))
+    if json_output:
+        _print_json(payload)
+    else:
+        console.print(f"PASS fetched OHLC snapshot for {len(items)} instruments")
+
+
+@dhan_market_app.command("historical")
+def dhan_market_historical(
+    from_date: Annotated[str, typer.Option("--from-date", help="Start date, YYYY-MM-DD.")],
+    to_date: Annotated[str, typer.Option("--to-date", help="End date, YYYY-MM-DD; Dhan treats it as non-inclusive.")],
+    instruments: Annotated[Path, typer.Option("--instruments", help="Dhan instrument mapping CSV.")] = DEFAULT_DHAN_INSTRUMENTS_PATH,
+    output_dir: Annotated[Path, typer.Option("--output-dir", help="Where ArthaVyuh OHLCV CSVs are written.")] = DEFAULT_OHLCV_DIR,
+    json_output: Annotated[bool, typer.Option("--json", help="Print machine-readable JSON.")] = False,
+) -> None:
+    client = _dhan_client(json_output)
+    written: list[dict[str, str]] = []
+    for item in load_dhan_instruments(instruments):
+        try:
+            response = client.historical_daily(
+                security_id=item["security_id"],
+                exchange_segment=item["exchange_segment"],
+                instrument=item["instrument"],
+                from_date=from_date,
+                to_date=to_date,
+            )
+        except typer.Exit:
+            raise
+        except RuntimeError as exc:
+            _fail(str(exc), json_output)
+        path = write_historical_ohlcv_csv(item["symbol"], response, output_dir)
+        written.append({"symbol": item["symbol"], "path": str(path)})
+
+    payload = {"status": "PASS", "from_date": from_date, "to_date": to_date, "written": written}
+    if json_output:
+        _print_json(payload)
+    else:
+        console.print(f"PASS wrote {len(written)} OHLCV CSV files")
+        for item in written:
+            console.print(f"{item['symbol']}: {item['path']}")
 
 
 if __name__ == "__main__":

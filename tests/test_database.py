@@ -19,3 +19,4 @@ def test_database_initialization(tmp_path: Path) -> None:
     assert "signals" in tables
     assert "trades" in tables
     assert "journal_entries" in tables
+    assert "broker_snapshots" in tables

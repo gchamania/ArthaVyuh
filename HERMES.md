@@ -24,6 +24,7 @@ Hermes may:
 - summarize scanner output
 - explain why a setup matched
 - remind the user of risk rules
+- run approved read-only Dhan data commands after credentials are configured
 
 Hermes must not:
 
@@ -32,7 +33,19 @@ Hermes must not:
 - bypass risk rules
 - edit SQLite directly
 - execute broker orders
+- call Dhan order placement, order modification, order cancellation, or execution endpoints
 - change strategy code unless explicitly asked
+
+Approved read-only Dhan commands:
+
+```bash
+arthavyuh dhan check
+arthavyuh dhan holdings
+arthavyuh dhan positions
+arthavyuh dhan ledger --from-date YYYY-MM-DD --to-date YYYY-MM-DD
+arthavyuh dhan trades --from-date YYYY-MM-DD --to-date YYYY-MM-DD
+arthavyuh dhan market historical --from-date YYYY-MM-DD --to-date YYYY-MM-DD --instruments config/dhan_instruments_sample.csv
+```
 
 Hermes role:
 
