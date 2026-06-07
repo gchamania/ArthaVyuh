@@ -1,0 +1,13 @@
+database:
+  path: data/arthavyuh.db
+
+data:
+  ohlcv_dir: data/ohlcv
+  default_watchlist: config/watchlists/sample_watchlist.csv
+
+reports:
+  daily_dir: reports/daily
+
+risk:
+  default_capital: 100000
+  default_risk_percent: 1.0

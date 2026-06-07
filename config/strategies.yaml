@@ -1,0 +1,15 @@
+strategies:
+  trend_pullback:
+    enabled: true
+    pullback_threshold_percent: 3.0
+    min_rsi: 40
+    max_rsi: 65
+  breakout_retest:
+    enabled: true
+    lookback: 20
+    breakout_recent_days: 8
+    retest_threshold_percent: 3.0
+  fifty_two_week_pullback:
+    enabled: true
+    near_high_threshold_percent: 15.0
+    max_rsi: 72
